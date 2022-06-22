@@ -19,7 +19,7 @@ builds:
 archives:
   - id: daemon
     builds:
-      - trafikvader
+      - daemon
     wrap_in_directory: true
     files:
       - LICENSE
