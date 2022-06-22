@@ -89,7 +89,6 @@ func main() {
 			log.Printf("MQTT: reconnecting")
 		}
 	}()
-	time.Sleep(10 * time.Second)
 
 	tempSensor := newTempSensor(data.name, m)
 	rhSensor := newRHSensor(data.name, m)
