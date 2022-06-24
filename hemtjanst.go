@@ -19,29 +19,19 @@ func topicName(name string) string {
 		"ö", "oe")
 }
 
-func newTempSensor(name string, tr device.Transport) client.Device {
+func newWeatherStation(name, id string, tr device.Transport) client.Device {
 	dev, _ := client.NewDevice(&device.Info{
-		Topic:        fmt.Sprintf("sensor/temperature/%s", topicName(name)),
+		Topic:        fmt.Sprintf("sensor/environment/%s", topicName(name)),
 		Manufacturer: "trafikväder",
-		Name:         fmt.Sprintf("Temperature (%s)", name),
-		Type:         "temperatureSensor",
+		Name:         fmt.Sprintf("%s (%s)", name, id),
+		Type:         "weatherStation",
 		Features: map[string]*feature.Info{
 			"currentTemperature": {
 				Min: -50,
-			}},
-	}, tr)
-
-	return dev
-}
-
-func newRHSensor(name string, tr device.Transport) client.Device {
-	dev, _ := client.NewDevice(&device.Info{
-		Topic:        fmt.Sprintf("sensor/humidity/%s", topicName(name)),
-		Manufacturer: "trafikväder",
-		Name:         fmt.Sprintf("Relative Humidity (%s)", name),
-		Type:         "humiditySensor",
-		Features: map[string]*feature.Info{
-			"currentRelativeHumidity": {}},
+			},
+			"currentRelativeHumidity": {},
+			"precipitation":           {},
+		},
 	}, tr)
 
 	return dev
