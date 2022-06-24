@@ -90,18 +90,24 @@ func main() {
 		}
 	}()
 
-	tempSensor := newTempSensor(data.name, m)
-	rhSensor := newRHSensor(data.name, m)
+	station := newWeatherStation(data.name, *stationID, m)
 
-	err = tempSensor.Feature("currentTemperature").Update(
+	err = station.Feature("currentTemperature").Update(
 		strconv.FormatFloat(data.tempC, 'f', 1, 32),
 	)
 	if err != nil {
 		log.Printf("MQTT: %s\n", err)
 	}
 
-	err = rhSensor.Feature("currentRelativeHumidity").Update(
+	err = station.Feature("currentRelativeHumidity").Update(
 		strconv.FormatFloat(data.rhPct, 'f', 1, 32),
+	)
+	if err != nil {
+		log.Printf("MQTT: %s\n", err)
+	}
+
+	err = station.Feature("precipitation").Update(
+		strconv.FormatFloat(data.precip, 'f', 1, 32),
 	)
 	if err != nil {
 		log.Printf("MQTT: %s\n", err)
@@ -122,17 +128,23 @@ loop:
 				log.Printf("failed to fetch data from API: %s\n", err)
 				continue
 			}
-			err = tempSensor.Feature("currentTemperature").Update(
+			err = station.Feature("currentTemperature").Update(
 				strconv.FormatFloat(data.tempC, 'f', 1, 32),
 			)
 			if err != nil {
 				log.Printf("MQTT: failed to publish temperature update: %s\n", err)
 			}
-			err = rhSensor.Feature("currentRelativeHumidity").Update(
+			err = station.Feature("currentRelativeHumidity").Update(
 				strconv.FormatFloat(data.rhPct, 'f', 1, 32),
 			)
 			if err != nil {
 				log.Printf("MQTT: failed to publish relative humidity update: %s\n", err)
+			}
+			err = station.Feature("precipitation").Update(
+				strconv.FormatFloat(data.precip, 'f', 1, 32),
+			)
+			if err != nil {
+				log.Printf("MQTT: failed to publish precipitation update: %s\n", err)
 			}
 		}
 	}
@@ -140,25 +152,10 @@ loop:
 }
 
 type data struct {
-	name  string
-	tempC float64
-	rhPct float64
-}
-
-type weatherstationResp struct {
-	Response struct {
-		Result []struct {
-			WeatherStation []*struct {
-				Name        string `json:"Name"`
-				Measurement struct {
-					Air struct {
-						Temp             float64 `json:"Temp"`
-						RelativeHumidity float64 `json:"RelativeHumidity"`
-					} `json:"Air"`
-				} `json:"Measurement"`
-			} `json:"WeatherStation"`
-		} `json:"RESULT"`
-	} `json:"RESPONSE"`
+	name   string
+	tempC  float64
+	rhPct  float64
+	precip float64
 }
 
 func retrieve(ctx context.Context, client *http.Client, body []byte) (data, error) {
@@ -203,6 +200,25 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 		return data{}, fmt.Errorf("got status code: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
+	type weatherstationResp struct {
+		Response struct {
+			Result []struct {
+				WeatherStation []*struct {
+					Name        string `json:"Name"`
+					Measurement struct {
+						Air struct {
+							Temp             float64 `json:"Temp"`
+							RelativeHumidity float64 `json:"RelativeHumidity"`
+						} `json:"Air"`
+						Precipitation struct {
+							Amount float64 `json:"Amount"`
+						} `json:"Precipitation"`
+					} `json:"Measurement"`
+				} `json:"WeatherStation"`
+			} `json:"RESULT"`
+		} `json:"RESPONSE"`
+	}
+
 	d := json.NewDecoder(resp.Body)
 	var wr weatherstationResp
 	err = d.Decode(&wr)
@@ -215,8 +231,9 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 	}
 
 	return data{
-		name:  wr.Response.Result[0].WeatherStation[0].Name,
-		tempC: wr.Response.Result[0].WeatherStation[0].Measurement.Air.Temp,
-		rhPct: wr.Response.Result[0].WeatherStation[0].Measurement.Air.RelativeHumidity,
+		name:   wr.Response.Result[0].WeatherStation[0].Name,
+		tempC:  wr.Response.Result[0].WeatherStation[0].Measurement.Air.Temp,
+		rhPct:  wr.Response.Result[0].WeatherStation[0].Measurement.Air.RelativeHumidity,
+		precip: wr.Response.Result[0].WeatherStation[0].Measurement.Precipitation.Amount,
 	}, nil
 }
