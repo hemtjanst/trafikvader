@@ -203,18 +203,7 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 	type weatherstationResp struct {
 		Response struct {
 			Result []struct {
-				WeatherStation []*struct {
-					Name        string `json:"Name"`
-					Measurement struct {
-						Air struct {
-							Temp             float64 `json:"Temp"`
-							RelativeHumidity float64 `json:"RelativeHumidity"`
-						} `json:"Air"`
-						Precipitation struct {
-							Amount float64 `json:"Amount"`
-						} `json:"Precipitation"`
-					} `json:"Measurement"`
-				} `json:"WeatherStation"`
+				WeatherStation []trafikinfo.WeatherStation1Dot0 `json:"WeatherStation"`
 			} `json:"RESULT"`
 		} `json:"RESPONSE"`
 	}
@@ -226,14 +215,19 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 		return data{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if len(wr.Response.Result) == 0 {
+	if len(wr.Response.Result[0].WeatherStation) == 0 {
 		return data{}, fmt.Errorf("station with ID: %s does not exist", *stationID)
 	}
 
+	precip := 0.0
+	if data := wr.Response.Result[0].WeatherStation[0].Measurement.Precipitation.Amount; data != nil {
+		precip = *data
+	}
+
 	return data{
-		name:   wr.Response.Result[0].WeatherStation[0].Name,
-		tempC:  wr.Response.Result[0].WeatherStation[0].Measurement.Air.Temp,
-		rhPct:  wr.Response.Result[0].WeatherStation[0].Measurement.Air.RelativeHumidity,
-		precip: wr.Response.Result[0].WeatherStation[0].Measurement.Precipitation.Amount,
+		name:   *wr.Response.Result[0].WeatherStation[0].Name,
+		tempC:  *wr.Response.Result[0].WeatherStation[0].Measurement.Air.Temperature,
+		rhPct:  *wr.Response.Result[0].WeatherStation[0].Measurement.Air.RelativeHumidity,
+		precip: precip,
 	}, nil
 }
