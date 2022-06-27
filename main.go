@@ -55,6 +55,8 @@ func main() {
 				1.0,
 			).Filter(
 				trafikinfo.Equal("Id", *stationID),
+			).Include(
+				"Active", "Id", "Name", "Measurement",
 			),
 		).Build()
 
