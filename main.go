@@ -221,15 +221,20 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 		return data{}, fmt.Errorf("station with ID: %s does not exist", *stationID)
 	}
 
+	station := wr.Response.Result[0].WeatherStation[0]
+	if station.Active != nil && !*station.Active {
+		return data{}, fmt.Errorf("station with ID: %s is not active", *stationID)
+	}
+
 	precip := 0.0
-	if data := wr.Response.Result[0].WeatherStation[0].Measurement.Precipitation.Amount; data != nil {
+	if data := station.Measurement.Precipitation.Amount; data != nil {
 		precip = *data
 	}
 
 	return data{
-		name:   *wr.Response.Result[0].WeatherStation[0].Name,
-		tempC:  *wr.Response.Result[0].WeatherStation[0].Measurement.Air.Temperature,
-		rhPct:  *wr.Response.Result[0].WeatherStation[0].Measurement.Air.RelativeHumidity,
+		name:   *station.Name,
+		tempC:  *station.Measurement.Air.Temperature,
+		rhPct:  *station.Measurement.Air.RelativeHumidity,
 		precip: precip,
 	}, nil
 }
