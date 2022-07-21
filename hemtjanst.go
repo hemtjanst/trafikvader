@@ -2,28 +2,17 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"lib.hemtjan.st/client"
 	"lib.hemtjan.st/device"
 	"lib.hemtjan.st/feature"
 )
 
-func topicName(name string) string {
-	return strings.ReplaceAll(
-		strings.ReplaceAll(
-			strings.ReplaceAll(
-				strings.ToLower(name),
-				"å", "ao"),
-			"ä", "ae"),
-		"ö", "oe")
-}
-
-func newWeatherStation(name, id string, tr device.Transport) client.Device {
+func newWeatherStation(name, id string, road int, tr device.Transport) client.Device {
 	dev, _ := client.NewDevice(&device.Info{
-		Topic:        fmt.Sprintf("sensor/environment/%s", topicName(name)),
+		Topic:        fmt.Sprintf("sensor/environment/%s", id),
 		Manufacturer: "trafikväder",
-		Name:         fmt.Sprintf("%s (%s)", name, id),
+		Name:         fmt.Sprintf("%s (%s, road: %d)", name, id, road),
 		Type:         "weatherStation",
 		Features: map[string]*feature.Info{
 			"currentTemperature": {

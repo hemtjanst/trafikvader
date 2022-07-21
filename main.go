@@ -59,7 +59,6 @@ func main() {
 				"Active", "Id", "Name", "Measurement",
 			),
 		).Build()
-
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -92,7 +91,7 @@ func main() {
 		}
 	}()
 
-	station := newWeatherStation(data.name, *stationID, m)
+	station := newWeatherStation(data.name, *stationID, data.roadNum, m)
 
 	err = station.Feature("currentTemperature").Update(
 		strconv.FormatFloat(data.tempC, 'f', 1, 32),
@@ -154,10 +153,11 @@ loop:
 }
 
 type data struct {
-	name   string
-	tempC  float64
-	rhPct  float64
-	precip float64
+	name    string
+	tempC   float64
+	rhPct   float64
+	precip  float64
+	roadNum int
 }
 
 func retrieve(ctx context.Context, client *http.Client, body []byte) (data, error) {
@@ -232,9 +232,10 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) (data, erro
 	}
 
 	return data{
-		name:   *station.Name,
-		tempC:  *station.Measurement.Air.Temperature,
-		rhPct:  *station.Measurement.Air.RelativeHumidity,
-		precip: precip,
+		name:    *station.Name,
+		tempC:   *station.Measurement.Air.Temperature,
+		rhPct:   *station.Measurement.Air.RelativeHumidity,
+		precip:  precip,
+		roadNum: *station.RoadNumber,
 	}, nil
 }
