@@ -17,8 +17,8 @@ Usage of trafikvader:
 
 Parameters:
 
-  -id string
-    	Weatherstation ID to retrieve data for (default "REQUIRED")
+  -id value
+    	station ID to query for, needs to be passed at least 1 time
 [..]
   -token string
     	Trafikinfo API token (default "REQUIRED")
