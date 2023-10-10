@@ -8,11 +8,11 @@ import (
 	"lib.hemtjan.st/feature"
 )
 
-func newWeatherStation(name, id string, road int, tr device.Transport) client.Device {
+func newWeatherStation(name, id string, tr device.Transport) client.Device {
 	dev, _ := client.NewDevice(&device.Info{
 		Topic:        fmt.Sprintf("sensor/environment/%s", id),
 		Manufacturer: "trafikväder",
-		Name:         fmt.Sprintf("%s (%s, road: %d)", name, id, road),
+		Name:         fmt.Sprintf("%s (%s)", name, id),
 		Type:         "weatherStation",
 		Features: map[string]*feature.Info{
 			"currentTemperature": {

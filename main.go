@@ -26,20 +26,20 @@ var (
 	date    = "unknown"
 )
 
-type stationIDFlag []string
+type stationNamesFlag []string
 
-func (s *stationIDFlag) String() string {
+func (s *stationNamesFlag) String() string {
 	return strings.Join(*s, ", ")
 }
 
-func (s *stationIDFlag) Set(value string) error {
+func (s *stationNamesFlag) Set(value string) error {
 	*s = append(*s, value)
 	return nil
 }
 
 func main() {
-	var stationIDs stationIDFlag
-	flag.Var(&stationIDs, "id", "station ID to query for, needs to be passed at least 1 time")
+	var stationNames stationNamesFlag
+	flag.Var(&stationNames, "name", "station name to query for, needs to be passed at least 1 time")
 	apiToken := flag.String("token", "REQUIRED", "Trafikinfo API token")
 
 	flag.Usage = func() {
@@ -57,25 +57,23 @@ func main() {
 	if *apiToken == "REQUIRED" {
 		log.Fatalln("A token is required to be able to query the Trafikinfo API")
 	}
-	if len(stationIDs) == 0 {
-		log.Fatalln("At least one station ID is required to be able to query the Trafikinfo API")
+	if len(stationNames) == 0 {
+		log.Fatalln("At least one station name is required to be able to query the Trafikinfo API")
 	}
 
-	stationFilters := make([]trafikinfo.Filter, 0, len(stationIDs))
-	for _, station := range stationIDs {
-		stationFilters = append(stationFilters, trafikinfo.Equal("Id", station))
+	stationFilters := make([]trafikinfo.Filter, 0, len(stationNames))
+	for _, station := range stationNames {
+		stationFilters = append(stationFilters, trafikinfo.Equal("Name", station))
 	}
 
 	req, err := trafikinfo.NewRequest().
 		APIKey(*apiToken).
 		Query(
 			trafikinfo.NewQuery(
-				trafikinfo.WeatherStation,
-				1.0,
+				trafikinfo.WeatherMeasurepoint,
+				2.0,
 			).Filter(
 				trafikinfo.Or(stationFilters...),
-			).Include(
-				"Active", "Id", "Name", "Measurement", "RoadNumberNumeric",
 			),
 		).Build()
 	if err != nil {
@@ -113,14 +111,14 @@ func main() {
 	stations := map[string]client.Device{}
 	for _, item := range data {
 		station := newWeatherStation(
-			item.name, item.id, item.roadNum, m,
+			item.name, item.id, m,
 		)
 		stations[item.id] = station
 	}
 
-	if len(stations) != len(stationIDs) {
+	if len(stations) != len(stationNames) {
 		notfound := []string{}
-		for _, id := range stationIDs {
+		for _, id := range stationNames {
 			if _, ok := stations[id]; !ok {
 				notfound = append(notfound, id)
 			}
@@ -181,12 +179,11 @@ func update(data []data, stations map[string]client.Device) {
 }
 
 type data struct {
-	id      string
-	name    string
-	tempC   float64
-	rhPct   float64
-	precip  float64
-	roadNum int
+	id     string
+	name   string
+	tempC  float64
+	rhPct  float64
+	precip float64
 }
 
 func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, error) {
@@ -201,23 +198,18 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, er
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	if resp.StatusCode == http.StatusBadRequest {
-		type errmsg struct {
-			Response struct {
-				Result []struct {
-					Error struct {
-						Message string `json:"MESSAGE"`
-					} `json:"ERROR"`
-				} `json:"RESULT"`
-			} `json:"RESPONSE"`
-		}
-		var e errmsg
+		var e trafikinfo.APIError
 		d := json.NewDecoder(resp.Body)
 		err := d.Decode(&e)
 		if err != nil {
@@ -227,20 +219,19 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, er
 	}
 
 	if resp.StatusCode != 200 {
-		io.Copy(io.Discard, resp.Body)
 		return nil, fmt.Errorf("got status code: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	type weatherstationResp struct {
+	type mpResp struct {
 		Response struct {
 			Result []struct {
-				WeatherStation []trafikinfo.WeatherStation1Dot0 `json:"WeatherStation"`
+				Measurepoints []trafikinfo.WeatherMeasurepoint2Dot0 `json:"WeatherMeasurepoint"`
 			} `json:"RESULT"`
 		} `json:"RESPONSE"`
 	}
 
 	d := json.NewDecoder(resp.Body)
-	var wr weatherstationResp
+	var wr mpResp
 	err = d.Decode(&wr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
@@ -251,21 +242,22 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, er
 	}
 
 	res := []data{}
-	for _, station := range wr.Response.Result[0].WeatherStation {
-		if station.Active != nil && !*station.Active {
+	for _, mp := range wr.Response.Result[0].Measurepoints {
+		// Don't bother updating if samples are old. This usually indicates the station is
+		// malfunctioning or offline for maintenance
+		if mp.Observation.Sample.Before(time.Now().Add(-1 * time.Hour)) {
 			continue
 		}
 		precip := 0.0
-		if data := station.Measurement.Precipitation.Amount; data != nil {
+		if data := mp.Observation.Aggregated5Minutes.Precipitation.RainSum.Value; data != nil {
 			precip = *data
 		}
 		res = append(res, data{
-			id:      *station.ID,
-			name:    *station.Name,
-			tempC:   *station.Measurement.Air.Temperature,
-			rhPct:   *station.Measurement.Air.RelativeHumidity,
-			precip:  precip,
-			roadNum: *station.RoadNumber,
+			id:     *mp.ID,
+			name:   *mp.Name,
+			tempC:  *mp.Observation.Air.Temperature.Value,
+			rhPct:  *mp.Observation.Air.RelativeHumidity.Value,
+			precip: precip,
 		})
 	}
 
