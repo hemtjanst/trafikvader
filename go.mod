@@ -3,8 +3,8 @@ module hemtjan.st/trafikvader
 go 1.18
 
 require (
-	code.dny.dev/trafikinfo v0.5.0
-	lib.hemtjan.st v0.7.1
+	code.dny.dev/trafikinfo v0.6.0
+	lib.hemtjan.st v0.7.2
 )
 
 require (
