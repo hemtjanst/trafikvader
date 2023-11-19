@@ -249,8 +249,8 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, er
 			continue
 		}
 		precip := 0.0
-		if data := mp.Observation.Aggregated5Minutes.Precipitation.RainSum.Value; data != nil {
-			precip = *data
+		if data := mp.Observation.Aggregated30Minutes.Precipitation.TotalWaterEquivalent.Value; data != nil {
+			precip = *data * 2 // 2*30min to get back to mm/hr
 		}
 		res = append(res, data{
 			id:     *mp.ID,
