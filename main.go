@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/xml"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"code.dny.dev/trafikinfo"
+	wmp "code.dny.dev/trafikinfo/trv/weathermeasurepoint/v2"
 	"lib.hemtjan.st/client"
 	"lib.hemtjan.st/transport/mqtt"
 )
@@ -69,15 +70,20 @@ func main() {
 	req, err := trafikinfo.NewRequest().
 		APIKey(*apiToken).
 		Query(
-			trafikinfo.NewQuery(
-				trafikinfo.WeatherMeasurepoint,
-				2.0,
-			).Filter(
+			trafikinfo.NewQuery(wmp.ObjectType()).Filter(
 				trafikinfo.Or(stationFilters...),
+			).Include(
+				"Id", "Name",
+				"Observation.Air.Temperature.Value",
+				"Observation.Air.RelativeHumidity.Value",
+				"Observation.Aggregated5minutes.Precipitation.TotalWaterEquivalent.Value",
+				"Observation.Aggregated10minutes.Precipitation.TotalWaterEquivalent.Value",
+				"Observation.Aggregated30minutes.Precipitation.TotalWaterEquivalent.Value",
+				"Observation.Sample",
 			),
 		).Build()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("invalid query: %v\n", err)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -148,8 +154,8 @@ loop:
 	os.Exit(0)
 }
 
-func update(data []data, stations map[string]client.Device) {
-	for _, item := range data {
+func update(sensors []sensor, stations map[string]client.Device) {
+	for _, item := range sensors {
 		station, ok := stations[item.id]
 		if !ok {
 			continue
@@ -178,7 +184,7 @@ func update(data []data, stations map[string]client.Device) {
 	}
 }
 
-type data struct {
+type sensor struct {
 	id     string
 	name   string
 	tempC  float64
@@ -186,7 +192,7 @@ type data struct {
 	precip float64
 }
 
-func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, error) {
+func retrieve(ctx context.Context, client *http.Client, body []byte) ([]sensor, error) {
 	httpReq, err := http.NewRequest(http.MethodPost, trafikinfo.Endpoint, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
@@ -204,66 +210,60 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]data, er
 		resp.Body.Close()
 	}()
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("invalid credentials")
-	}
-
-	if resp.StatusCode == http.StatusBadRequest {
-		var e trafikinfo.APIError
-		d := json.NewDecoder(resp.Body)
-		err := d.Decode(&e)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode API error response: %w", err)
-		}
-		return nil, fmt.Errorf("invalid request: %s", e.Response.Result[0].Error.Message)
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("got status code: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
-	type mpResp struct {
-		Response struct {
-			Result []struct {
-				Measurepoints []trafikinfo.WeatherMeasurepoint2Dot0 `json:"WeatherMeasurepoint"`
-			} `json:"RESULT"`
-		} `json:"RESPONSE"`
-	}
-
-	d := json.NewDecoder(resp.Body)
-	var wr mpResp
-	err = d.Decode(&wr)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
+		return nil, err
+	}
+
+	var wr wmp.Response
+	if err := xml.Unmarshal(data, &wr); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if numRes := len(wr.Response.Result); numRes != 1 {
+	if resp.StatusCode != http.StatusOK || wr.HasErrors() {
+		return nil, fmt.Errorf("http code: %d, error: %s", resp.StatusCode, wr.ErrorMsg())
+	}
+
+	if numRes := len(wr.Results); numRes != 1 {
 		return nil, fmt.Errorf("expected 1 query result, got %d", numRes)
 	}
 
-	res := []data{}
-	for _, mp := range wr.Response.Result[0].Measurepoints {
+	sensors := []sensor{}
+	for _, mp := range wr.Results[0].Data {
 		// Don't bother updating if samples are old. This usually indicates the station is
 		// malfunctioning or offline for maintenance
-		if mp.Observation.Sample.Before(time.Now().Add(-1 * time.Hour)) {
+		if mp.Observation().Sample().Before(time.Now().Add(-1 * time.Hour)) {
 			continue
 		}
-		precip := 0.0
-		if mp.Observation.Aggregated30Minutes != nil &&
-			mp.Observation.Aggregated30Minutes.Precipitation != nil &&
-			mp.Observation.Aggregated30Minutes.Precipitation.TotalWaterEquivalent != nil &&
-			mp.Observation.Aggregated30Minutes.Precipitation.TotalWaterEquivalent.Value != nil {
-			precip = *mp.Observation.Aggregated30Minutes.Precipitation.TotalWaterEquivalent.Value * 2
-		}
 
-		res = append(res, data{
-			id:     *mp.ID,
-			name:   *mp.Name,
-			tempC:  *mp.Observation.Air.Temperature.Value,
-			rhPct:  *mp.Observation.Air.RelativeHumidity.Value,
-			precip: precip,
+		sensors = append(sensors, sensor{
+			id:    *mp.ID(),
+			name:  *mp.Name(),
+			tempC: *mp.Observation().Air().Temperature().Value(),
+			rhPct: *mp.Observation().Air().RelativeHumidity().Value(),
+			precip: pick(
+				[]precip{
+					{value: mp.Observation().Aggregated5minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 12},
+					{value: mp.Observation().Aggregated10minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 6},
+					{value: mp.Observation().Aggregated30minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 2},
+				},
+			),
 		})
 	}
 
-	return res, nil
+	return sensors, nil
+}
+
+type precip struct {
+	value      *float64
+	multiplier float64
+}
+
+func pick(data []precip) float64 {
+	for _, p := range data {
+		if p.value != nil {
+			return *p.value * p.multiplier
+		}
+	}
+	return 0.0
 }
