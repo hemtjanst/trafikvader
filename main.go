@@ -76,8 +76,6 @@ func main() {
 				"Id", "Name",
 				"Observation.Air.Temperature.Value",
 				"Observation.Air.RelativeHumidity.Value",
-				"Observation.Aggregated5minutes.Precipitation.TotalWaterEquivalent.Value",
-				"Observation.Aggregated10minutes.Precipitation.TotalWaterEquivalent.Value",
 				"Observation.Aggregated30minutes.Precipitation.TotalWaterEquivalent.Value",
 				"Observation.Sample",
 			),
@@ -161,22 +159,30 @@ func update(sensors []sensor, stations map[string]client.Device) {
 			continue
 		}
 
-		err := station.Feature("currentTemperature").Update(
-			strconv.FormatFloat(item.tempC, 'f', 1, 32),
-		)
-		if err != nil {
-			log.Printf("MQTT: failed to publish temperature: %s\n", err)
+		if item.tempC != nil {
+			err := station.Feature("currentTemperature").Update(
+				strconv.FormatFloat(*item.tempC, 'f', 1, 32),
+			)
+			if err != nil {
+				log.Printf("MQTT: failed to publish temperature: %s\n", err)
+			}
 		}
 
-		err = station.Feature("currentRelativeHumidity").Update(
-			strconv.FormatFloat(item.rhPct, 'f', 1, 32),
-		)
-		if err != nil {
-			log.Printf("MQTT: failed to publish relative humidity: %s\n", err)
+		if item.rhPct != nil {
+			err := station.Feature("currentRelativeHumidity").Update(
+				strconv.FormatFloat(*item.rhPct, 'f', 1, 32),
+			)
+			if err != nil {
+				log.Printf("MQTT: failed to publish relative humidity: %s\n", err)
+			}
 		}
 
-		err = station.Feature("precipitation").Update(
-			strconv.FormatFloat(item.precip, 'f', 1, 32),
+		precip := 0.0
+		if item.precip != nil {
+			precip = *item.precip
+		}
+		err := station.Feature("precipitation").Update(
+			strconv.FormatFloat(precip, 'f', 1, 32),
 		)
 		if err != nil {
 			log.Printf("MQTT: failed to publish precipitation: %s\n", err)
@@ -187,9 +193,9 @@ func update(sensors []sensor, stations map[string]client.Device) {
 type sensor struct {
 	id     string
 	name   string
-	tempC  float64
-	rhPct  float64
-	precip float64
+	tempC  *float64
+	rhPct  *float64
+	precip *float64
 }
 
 func retrieve(ctx context.Context, client *http.Client, body []byte) ([]sensor, error) {
@@ -237,33 +243,13 @@ func retrieve(ctx context.Context, client *http.Client, body []byte) ([]sensor, 
 		}
 
 		sensors = append(sensors, sensor{
-			id:    *mp.ID(),
-			name:  *mp.Name(),
-			tempC: *mp.Observation().Air().Temperature().Value(),
-			rhPct: *mp.Observation().Air().RelativeHumidity().Value(),
-			precip: pick(
-				[]precip{
-					{value: mp.Observation().Aggregated5minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 12},
-					{value: mp.Observation().Aggregated10minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 6},
-					{value: mp.Observation().Aggregated30minutes().Precipitation().TotalWaterEquivalent().Value(), multiplier: 2},
-				},
-			),
+			id:     *mp.ID(),
+			name:   *mp.Name(),
+			tempC:  mp.Observation().Air().Temperature().Value(),
+			rhPct:  mp.Observation().Air().RelativeHumidity().Value(),
+			precip: mp.Observation().Aggregated30minutes().Precipitation().TotalWaterEquivalent().Value(),
 		})
 	}
 
 	return sensors, nil
-}
-
-type precip struct {
-	value      *float64
-	multiplier float64
-}
-
-func pick(data []precip) float64 {
-	for _, p := range data {
-		if p.value != nil {
-			return *p.value * p.multiplier
-		}
-	}
-	return 0.0
 }
