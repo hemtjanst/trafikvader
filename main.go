@@ -179,7 +179,7 @@ func update(sensors []sensor, stations map[string]client.Device) {
 
 		precip := 0.0
 		if item.precip != nil {
-			precip = *item.precip
+			precip = *item.precip * 2
 		}
 		err := station.Feature("precipitation").Update(
 			strconv.FormatFloat(precip, 'f', 1, 32),
